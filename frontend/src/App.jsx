@@ -18,6 +18,14 @@ function App() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
+    // Check for session_id in URL (token handoff)
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    if (sessionId) {
+      localStorage.setItem('skyquery_session_token', sessionId);
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     checkAuthStatus();
   }, []);
 

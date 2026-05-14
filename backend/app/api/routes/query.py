@@ -19,7 +19,7 @@ class QueryRequest(BaseModel):
 @router.post("/query", response_model=Dict[str, Any])
 async def query_endpoint(request: QueryRequest, req: Request):
     try:
-        session_id = request.session_id or req.session.get("session_id") or "demo"
+        session_id = request.session_id or req.session.get("session_id") or req.headers.get("X-Session-Token") or "demo"
         token_key = f"copilot_token:{session_id}"
         raw_token = redis_client.get(token_key)
 

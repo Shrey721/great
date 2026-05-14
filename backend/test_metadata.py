@@ -2,7 +2,7 @@ import urllib.request
 import json
 import urllib.error
 
-base_url = "http://127.0.0.1:8000/api/v1/metadata"
+base_url = "https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1/metadata"
 
 # 1. Discover Metadata
 print("Testing /discover...")

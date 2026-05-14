@@ -29,7 +29,7 @@ def login_via_github():
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=500, detail="GitHub Client ID not configured")
     
-    url = f"{GITHUB_AUTHORIZE_URL}?client_id={settings.GITHUB_CLIENT_ID}&scope=user:email"
+    url = f"{GITHUB_AUTHORIZE_URL}?client_id={settings.GITHUB_CLIENT_ID}&scope=user:email,read:user"
     return RedirectResponse(url)
 
 @router.get("/github/callback")
@@ -69,6 +69,34 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
             
         user_info = user_response.json()
         print(f"[Auth Callback] GitHub user info retrieved for: {user_info.get('login')}")
+        
+        # --- COPILOT TOKEN EXCHANGE ---
+        # Exchange the gho_ token for a copilot token (tid=...)
+        print(f"[Auth Callback] Exchanging token at {settings.GITHUB_COPILOT_TOKEN_ENDPOINT}...")
+        copilot_token_resp = await client.get(
+            settings.GITHUB_COPILOT_TOKEN_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json"
+            }
+        )
+        
+        if copilot_token_resp.status_code == 200:
+            copilot_token_data = copilot_token_resp.json()
+            copilot_access_token = copilot_token_data.get("token")
+            if copilot_access_token:
+                print(f"[AUTH DEBUG] Successfully obtained Copilot token from exchange.")
+                print(f"[AUTH DEBUG] Copilot token prefix: {copilot_access_token[:20]}...")
+                print(f"[AUTH DEBUG] Copilot token length: {len(copilot_access_token)}")
+                # Use this token for the SDK
+                access_token = copilot_access_token
+            else:
+                print("[AUTH DEBUG] Copilot token exchange returned 200 but no token field found")
+        else:
+            print(f"[AUTH DEBUG] Copilot token exchange failed: {copilot_token_resp.status_code}")
+            print(f"[AUTH DEBUG] Response: {copilot_token_resp.text[:200]}")
+            # We continue with the original token, but this might be why 402 happens
+        # ------------------------------
         
         # Get user email
         email = user_info.get("email")
@@ -119,16 +147,33 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
         request.session["session_id"] = session_id
         
         # Store token securely server-side in Redis tied to this session
-        # Store token securely server-side in Redis tied to this session using the required key format
         redis_client.setex(f"copilot_token:{session_id}", 86400 * 7, access_token)
+        # Also store user_id for header-based auth lookup
+        redis_client.setex(f"session_user:{session_id}", 86400 * 7, str(user.id))
         
-        # Redirect to frontend
-        print(f"[Auth Callback] Creating session for user {user.username} and redirecting to {settings.FRONTEND_URL}/")
-        return RedirectResponse(url=f"{settings.FRONTEND_URL}/")
+        print(f"[AUTH DEBUG] Token stored in Redis for session_id: {session_id}")
+        print(f"[AUTH DEBUG] Redis key: copilot_token:{session_id}")
+        
+        # Redirect to frontend with session_id for token handoff (bypass cookie blocking)
+        print(f"[Auth Callback] Creating session for user {user.username} and redirecting with session_id={session_id}")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/?session_id={session_id}")
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user(request: Request, db: Session = Depends(get_db)):
+    # 1. Try session cookie first
     user_id = request.session.get("user_id")
+    
+    # 2. Try X-Session-Token header if cookie failed (Incognito/Cross-domain)
+    if not user_id:
+        token = request.headers.get("X-Session-Token")
+        if token:
+            cached_user_id = redis_client.get(f"session_user:{token}")
+            if cached_user_id:
+                user_id = int(cached_user_id)
+                # Inject back into session for convenience if possible
+                request.session["user_id"] = user_id
+                request.session["session_id"] = token
+
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
         
@@ -140,16 +185,22 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/logout")
 def logout(request: Request):
-    session_id = request.session.get("session_id")
+    session_id = request.session.get("session_id") or request.headers.get("X-Session-Token")
     if session_id:
         redis_client.delete(f"copilot_token:{session_id}")
+        redis_client.delete(f"session_user:{session_id}")
     request.session.clear()
     return {"message": "Logged out successfully"}
 
 @router.get("/token-status")
 async def get_token_status(request: Request):
     user_id = request.session.get("user_id")
-    session_id = request.session.get("session_id")
+    session_id = request.session.get("session_id") or request.headers.get("X-Session-Token")
+    
+    if not user_id and session_id:
+        cached_user_id = redis_client.get(f"session_user:{session_id}")
+        if cached_user_id:
+            user_id = int(cached_user_id)
     
     if not user_id or not session_id:
         return {"authenticated": False, "token_exists": False, "github_api_success": False}
@@ -182,7 +233,12 @@ async def test_copilot_llm(req: CopilotTestRequest, request: Request):
     settings = Settings()
 
     user_id = request.session.get("user_id")
-    session_id = request.session.get("session_id")
+    session_id = request.session.get("session_id") or request.headers.get("X-Session-Token")
+    
+    if not user_id and session_id:
+        cached_user_id = redis_client.get(f"session_user:{session_id}")
+        if cached_user_id:
+            user_id = int(cached_user_id)
 
     if not user_id or not session_id:
         return {
@@ -202,7 +258,9 @@ async def test_copilot_llm(req: CopilotTestRequest, request: Request):
             "safe_error_message": "GitHub token not found"
         }
 
-    model_name = req.model or settings.GITHUB_COPILOT_MODEL
+    # Enforce strict gpt-4.1 model usage
+    model_name = settings.GITHUB_COPILOT_MODEL
+    print(f"[DEBUG] Initiating /copilot-llm-test with model: {model_name}")
 
     try:
         # Call SDK wrapper

@@ -1,7 +1,7 @@
 import urllib.request
 import json
 
-base_url = "http://127.0.0.1:8000/api/v1/connections"
+base_url = "https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1/connections"
 
 data = {
     "host": "localhost",

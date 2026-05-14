@@ -2,15 +2,17 @@
  * API Client for SkyQuery Frontend
  */
 
-const BASE_URL = 'http://localhost:8000/api/v1';
+const BASE_URL = 'https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1';
 
 async function fetchWithHandler(url, options = {}) {
     console.log(`[API Request] ${options.method || 'GET'} ${url}`, options.body ? JSON.parse(options.body) : '');
+    const token = localStorage.getItem('skyquery_session_token');
     const response = await fetch(url, {
         credentials: 'include', // Needed for cookies
         ...options,
         headers: {
             'Content-Type': 'application/json',
+            'X-Session-Token': token || '',
             ...(options.headers || {})
         }
     });
@@ -117,7 +119,7 @@ export const apiClient = {
     },
 
     query: async (params) => {
-        return fetchWithHandler(`http://localhost:8000/query`, {
+        return fetchWithHandler(`https://wiring-sink-helps-sunglasses.trycloudflare.com/query`, {
             method: 'POST',
             body: JSON.stringify(params)
         });

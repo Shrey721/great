@@ -139,19 +139,36 @@ async def generate_sql(
         print(prompt[:3000])
         print("----- END PROMPT PREVIEW -----\n")
 
-        resolved_token = (
-            copilot_token
-            or kwargs.get("github_token")
-            or os.getenv("GITHUB_COPILOT_TOKEN", "")
-        )
+        # DIAGNOSTIC LOGGING FOR TOKEN SOURCE
+        env_token = os.getenv("GITHUB_COPILOT_TOKEN", "")
+        token_source = "UNKNOWN"
+        resolved_token = None
 
-        print("SQL GENERATOR RECEIVED TOKEN:", bool(copilot_token))
-        print("ENV TOKEN EXISTS:", bool(os.getenv("GITHUB_COPILOT_TOKEN", "")))
-        print("FINAL TOKEN EXISTS:", bool(resolved_token))
+        if copilot_token:
+            token_source = "REDIS (User Session)"
+            resolved_token = copilot_token
+        elif kwargs.get("github_token"):
+            token_source = "KWARGS (Direct Pass)"
+            resolved_token = kwargs.get("github_token")
+        
+        # STRICTOR AUTH: Disable silent fallbacks to environment variables
+        # If no session token exists, we should know about it.
+        
+        print("\n----- COPILOT AUTH DIAGNOSTICS -----")
+        print(f"SOURCE: {token_source}")
+        print(f"TOKEN PREFIX: {resolved_token[:20] if resolved_token else 'NONE'}...")
+        print(f"TOKEN LENGTH: {len(resolved_token) if resolved_token else 0}")
+        print(f"MODEL: {settings.GITHUB_COPILOT_MODEL}")
+        print(f"ENV FALLBACK EXISTS: {bool(env_token)}")
+        print("------------------------------------\n")
 
+        if not resolved_token:
+            raise RuntimeError("CRITICAL: No Copilot authentication token found. Silent fallbacks disabled.")
+
+        print(f"[DEBUG] Initiating generate_sql with model: {settings.GITHUB_COPILOT_MODEL}")
         response = await get_copilot_chat_completion(
             github_token=resolved_token,
-            model="gpt-4.1",
+            model=settings.GITHUB_COPILOT_MODEL,
             prompt=prompt
         )
 

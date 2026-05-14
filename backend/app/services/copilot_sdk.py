@@ -18,17 +18,24 @@ async def get_copilot_chat_completion(
     client = None
 
     try:
-        print("[Copilot SDK] Starting SDK request")
+        print("\n----- COPILOT SDK REQUEST DIAGNOSTICS -----")
+        print(f"TOKEN PREFIX: {github_token[:20] if github_token else 'NONE'}...")
+        print(f"TOKEN LENGTH: {len(github_token) if github_token else 0}")
+        print(f"MODEL: {model}")
+        print("-------------------------------------------\n")
+
+        if not github_token:
+             raise ValueError("Copilot SDK called with empty token.")
 
         config = SubprocessConfig(
             github_token=github_token,
-            use_logged_in_user=False,
+            use_logged_in_user=False, # Explicitly disabled to ensure OAuth token is used
         )
 
         client = CopilotClient(config=config)
 
         await client.start()
-        print("[Copilot SDK] Client started")
+        print(f"[Copilot SDK] Client started. Session ID: skyquery-test-session")
 
         session = await client.create_session(
             on_permission_request=approve_permission,
