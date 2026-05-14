@@ -2,7 +2,7 @@
  * API Client for SkyQuery Frontend
  */
 
-const BASE_URL = 'https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1';
+const BASE_URL = 'https://migration-educated-donors-reprint.trycloudflare.com/api/v1';
 
 async function fetchWithHandler(url, options = {}) {
     console.log(`[API Request] ${options.method || 'GET'} ${url}`, options.body ? JSON.parse(options.body) : '');
@@ -119,7 +119,7 @@ export const apiClient = {
     },
 
     query: async (params) => {
-        return fetchWithHandler(`https://wiring-sink-helps-sunglasses.trycloudflare.com/query`, {
+        return fetchWithHandler(`https://migration-educated-donors-reprint.trycloudflare.com/query`, {
             method: 'POST',
             body: JSON.stringify(params)
         });

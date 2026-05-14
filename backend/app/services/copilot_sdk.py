@@ -18,14 +18,32 @@ async def get_copilot_chat_completion(
     client = None
 
     try:
-        print("\n----- COPILOT SDK REQUEST DIAGNOSTICS -----")
+        # --- COPILOT AUTH DIAGNOSTICS (SDK LEVEL) ---
+        import os
+        env_token = os.getenv("GITHUB_COPILOT_TOKEN", "")
+        
+        token_source = "NONE"
+        if github_token:
+            if env_token and github_token == env_token:
+                token_source = "ENV_FALLBACK"
+            else:
+                token_source = "REDIS/OAUTH"
+        
+        print("\n" + "="*40)
+        print("COPILOT AUTH DIAGNOSTICS")
+        print(f"TOKEN PROVIDED: {bool(github_token)}")
+        print(f"ENV TOKEN EXISTS: {bool(env_token)}")
+        print(f"FINAL TOKEN EXISTS: {bool(github_token)}")
+        print(f"TOKEN SOURCE: {token_source}")
         print(f"TOKEN PREFIX: {github_token[:20] if github_token else 'NONE'}...")
         print(f"TOKEN LENGTH: {len(github_token) if github_token else 0}")
-        print(f"MODEL: {model}")
-        print("-------------------------------------------\n")
+        print(f"MODEL NAME: {model}")
+        print("="*40 + "\n")
 
         if not github_token:
-             raise ValueError("Copilot SDK called with empty token.")
+            print("❌ ERROR: NO EXPLICIT USER TOKEN PROVIDED (Strict check enabled)")
+            raise RuntimeError("NO EXPLICIT USER TOKEN PROVIDED")
+        # --------------------------------------------
 
         config = SubprocessConfig(
             github_token=github_token,

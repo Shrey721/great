@@ -1,7 +1,7 @@
 import React from 'react';
 import './Login.css';
 
-const GITHUB_LOGIN_URL = 'https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1/auth/github/login';
+const GITHUB_LOGIN_URL = 'https://migration-educated-donors-reprint.trycloudflare.com/api/v1/auth/github/login';
 
 const Login = () => {
   return (

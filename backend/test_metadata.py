@@ -2,7 +2,7 @@ import urllib.request
 import json
 import urllib.error
 
-base_url = "https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1/metadata"
+base_url = "https://migration-educated-donors-reprint.trycloudflare.com/api/v1/metadata"
 
 # 1. Discover Metadata
 print("Testing /discover...")

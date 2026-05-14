@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 from app.services.prompt_loader import load_prompt
 from app.services.copilot_sdk import get_copilot_chat_completion
 
+from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 

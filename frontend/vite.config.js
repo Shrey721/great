@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: [
-      "prix-propose-awesome-yoga.trycloudflare.com"
+      "sodium-queen-supplies-headers.trycloudflare.com"
     ]
   }
 })

@@ -25,6 +25,7 @@ class NLtoSQLPipeline:
         question: str,
         session_id: Optional[str] = None,
         copilot_token: Optional[str] = None,
+        db: Optional[Any] = None, # Session type hint avoided for circular imports
     ) -> Dict[str, Any]:
 
         print("PIPELINE SESSION ID:", session_id)
@@ -84,7 +85,7 @@ class NLtoSQLPipeline:
         self.recent_sqls = self.recent_sqls[-3:]
 
         try:
-            raw_rows = await self.executor.execute(sql)
+            raw_rows = await self.executor.execute(sql, db=db)
 
         except Exception as exc:
             exec_err = str(exc)
@@ -100,7 +101,7 @@ class NLtoSQLPipeline:
             )
 
             sql = repair["sql"]
-            raw_rows = await self.executor.execute(sql)
+            raw_rows = await self.executor.execute(sql, db=db)
 
         shaped = shape_result(raw_rows)
 

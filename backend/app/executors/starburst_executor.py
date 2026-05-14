@@ -14,55 +14,76 @@ class StarburstExecutor:
         self.mock_mode = (
             str(os.getenv("MOCK_EXECUTION", "false")).lower() == "true"
         )
-
         if self.mock_mode:
             logger.info("Running in MOCK mode")
-            self.connection = None
-            return
 
-        self.connection = trino.dbapi.connect(
-            host=os.getenv("TRINO_HOST", "localhost"),
-            port=int(os.getenv("TRINO_PORT", 8080)),
-            user=os.getenv("TRINO_USER", "admin"),
-            catalog=os.getenv("TRINO_CATALOG", "aviation"),
-            schema=os.getenv("TRINO_SCHEMA", "public"),
-        )
-
-        logger.info("Connected to Trino successfully")
-
-    async def execute(self, sql: str) -> List[Dict[str, Any]]:
-
+    async def execute(self, sql: str, db: Any = None) -> List[Dict[str, Any]]:
         # Clean SQL before sending to Trino
         sql = sql.strip().rstrip(";").strip()
 
-        logger.info("Executing cleaned SQL: %s", sql)
-        print("EXECUTING CLEANED SQL:", sql)
-
         if self.mock_mode:
+            logger.info("EXECUTING MOCK SQL: %s", sql)
             await asyncio.sleep(0.1)
+            return [{"delayed_flights": 342, "mock": True}]
 
-            return [
-                {
-                    "delayed_flights": 342,
-                    "mock": True
-                }
-            ]
+        # --- DYNAMIC CONNECTION LOADING ---
+        from app.services import connection_store, trino_service
+        
+        if db is None:
+            # Fallback for tests or unexpected paths
+            logger.warning("No DB session provided to executor. Falling back to .env defaults.")
+            host = os.getenv("TRINO_HOST", "localhost")
+            port = int(os.getenv("TRINO_PORT", 8080))
+            user = os.getenv("TRINO_USER", "admin")
+            catalog = os.getenv("TRINO_CATALOG", "aviation")
+            schema = os.getenv("TRINO_SCHEMA", "public")
+            password = None
+            ssl = False
+        else:
+            active_conn = connection_store.get_active_connection(db)
+            if not active_conn:
+                logger.error("No active Trino connection found in database.")
+                raise RuntimeError("No active Trino connection. Please connect via Settings first.")
+            
+            host = active_conn.host
+            port = active_conn.port
+            user = active_conn.username
+            catalog = active_conn.catalog
+            schema = active_conn.schema_name
+            password = connection_store.decrypt_password(active_conn.encrypted_password)
+            ssl = active_conn.ssl_enabled
+
+        logger.info(f"Executing SQL on {host}:{port} (Catalog: {catalog}, Schema: {schema}, User: {user})")
+        print(f"TRINO EXECUTION: {host}:{port} | {catalog}.{schema} | SQL: {sql}")
 
         try:
-            cursor = self.connection.cursor()
+            from app.models.connection import TrinoConnectionRequest
+            conn_req = TrinoConnectionRequest(
+                host=host,
+                port=port,
+                username=user,
+                password=password,
+                catalog=catalog,
+                schema_name=schema,
+                ssl_enabled=ssl
+            )
+            
+            conn = trino_service.get_trino_connection(conn_req)
+            cursor = conn.cursor()
             cursor.execute(sql)
 
             rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-
-            results = [
-                dict(zip(columns, row))
-                for row in rows
-            ]
+            cursor_desc = cursor.description
+            
+            if not cursor_desc:
+                return []
+                
+            columns = [desc[0] for desc in cursor_desc]
+            results = [dict(zip(columns, row)) for row in rows]
 
             logger.info("Returned %s rows", len(results))
             return results
 
         except Exception as e:
             logger.exception("Trino execution failed")
-            raise RuntimeError(str(e))
+            raise RuntimeError(f"Trino error on {host}:{port}: {str(e)}")

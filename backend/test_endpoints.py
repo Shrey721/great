@@ -1,7 +1,7 @@
 import urllib.request
 import json
 
-base_url = "https://wiring-sink-helps-sunglasses.trycloudflare.com/api/v1/connections"
+base_url = "https://migration-educated-donors-reprint.trycloudflare.com/api/v1/connections"
 
 data = {
     "host": "localhost",

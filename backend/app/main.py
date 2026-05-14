@@ -19,7 +19,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "https://prix-propose-awesome-yoga.trycloudflare.com"], # Set origins for credentials
+    allow_origins=[settings.FRONTEND_URL, "https://sodium-queen-supplies-headers.trycloudflare.com"], # Set origins for credentials
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

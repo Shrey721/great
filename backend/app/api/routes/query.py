@@ -16,8 +16,12 @@ class QueryRequest(BaseModel):
     session_id: str | None = None
 
 
+from app.db.database import get_db
+from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, Request, Depends
+
 @router.post("/query", response_model=Dict[str, Any])
-async def query_endpoint(request: QueryRequest, req: Request):
+async def query_endpoint(request: QueryRequest, req: Request, db: Session = Depends(get_db)):
     try:
         session_id = request.session_id or req.session.get("session_id") or req.headers.get("X-Session-Token") or "demo"
         token_key = f"copilot_token:{session_id}"
@@ -48,6 +52,7 @@ async def query_endpoint(request: QueryRequest, req: Request):
             question=request.question,
             session_id=session_id,
             copilot_token=copilot_token,
+            db=db,
         )
 
         return result
