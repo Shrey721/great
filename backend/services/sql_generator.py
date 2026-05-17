@@ -180,8 +180,12 @@ async def generate_sql(
         
         generated["sql"] = generated["sql"].strip().rstrip(";").strip()
 
+        # Sanitize Trino SQL (replace ILIKE with LOWER(col) LIKE LOWER(val))
+        from app.services.sql_repair import sanitize_trino_sql
+        generated["sql"] = sanitize_trino_sql(generated["sql"])
+
         print("✅ LLM GENERATED SQL SUCCESSFULLY")
-        print("SQL:", generated["sql"])
+        print("SQL (Sanitized):", generated["sql"])
         print("=========================================\n")
 
         return generated
