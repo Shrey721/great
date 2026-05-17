@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "SkyQuery API"
     API_V1_STR: str = "/api/v1"
     
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = "http://localhost:3000"
     GITHUB_CLIENT_ID: str = "Ov23li3PpGvLpdol3czz"
     GITHUB_CLIENT_SECRET: str = "974b4891cd845c5da363ae5b11f98826cdb9aa45"
     GITHUB_COPILOT_MODEL: str = os.getenv("GITHUB_COPILOT_MODEL", "gpt-4")

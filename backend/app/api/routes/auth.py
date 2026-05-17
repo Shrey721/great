@@ -29,7 +29,7 @@ def login_via_github():
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=500, detail="GitHub Client ID not configured")
     
-    url = f"{GITHUB_AUTHORIZE_URL}?client_id={settings.GITHUB_CLIENT_ID}&scope=user:email"
+    url = f"{GITHUB_AUTHORIZE_URL}?client_id={settings.GITHUB_CLIENT_ID}&scope=user:email&prompt=consent"
     return RedirectResponse(url)
 
 @router.get("/github/callback")
