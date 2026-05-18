@@ -3,6 +3,7 @@ import logging
 import json
 import re
 import ast
+import asyncio
 from typing import Dict, Any, List
 
 from app.services.prompt_loader import load_prompt
@@ -65,6 +66,8 @@ def _extract_json_from_response(response_text: str) -> Dict[str, Any]:
     if not response_text:
         raise ValueError("Empty LLM response text")
 
+    print(f"----- _extract_json_from_response RAW TEXT -----\n{response_text}\n------------------------------------------------")
+
     # Case 1: direct JSON
     try:
         return json.loads(response_text)
@@ -75,19 +78,36 @@ def _extract_json_from_response(response_text: str) -> Dict[str, Any]:
     match = re.search(r"content='(.*?)', message_id=", response_text, re.DOTALL)
     if match:
         content_literal = "'" + match.group(1) + "'"
-
         try:
             content = ast.literal_eval(content_literal)
-            return json.loads(content)
+            if not content.strip():
+                raise ValueError("SessionEvent content is empty")
+            
+            # Remove Markdown formatting if present
+            content_clean = re.sub(r"```(?:json)?\s*", "", content)
+            content_clean = re.sub(r"```\s*$", "", content_clean).strip()
+            
+            return json.loads(content_clean)
         except Exception as e:
-            raise ValueError(f"Failed to parse JSON from SessionEvent content: {e}")
+            raise ValueError(f"Failed to parse JSON from SessionEvent content. Raw content length: {len(match.group(1))}. Error: {e}")
 
-    # Case 3: fallback extract first JSON object
+    # Case 3: markdown code block without SessionEvent wrapper
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", response_text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except Exception as e:
+            pass
+
+    # Case 4: fallback extract first JSON object
     match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if match:
-        return json.loads(match.group(0))
+        try:
+            return json.loads(match.group(0))
+        except Exception as e:
+            pass
 
-    raise ValueError("Could not extract JSON from LLM response")
+    raise ValueError("Could not extract JSON from LLM response. Snippet: " + response_text[:100])
 
 
 async def generate_sql(
@@ -119,92 +139,96 @@ async def generate_sql(
     print("SCHEMA PREVIEW:", str(schema_context)[:500])
     print("RECENT SQLS:", recent_sqls[-3:])
 
-    try:
-        prompt_template = load_prompt("sql_generator.txt")
+    prompt_template = load_prompt("sql_generator.txt")
 
-        context = {
-            "question": question,
-            "tables": selected_tables,
-            "selected_tables": selected_tables,
-            "schema": schema_context,
-            "history": conversation_history[-3:],
-            "recent_sqls": recent_sqls[-3:],
-            "sample_values": sample_values or {},
-            "intent": intent or {},
-        }
+    context = {
+        "question": question,
+        "tables": selected_tables,
+        "selected_tables": selected_tables,
+        "schema": schema_context,
+        "history": conversation_history[-3:],
+        "recent_sqls": recent_sqls[-3:],
+        "sample_values": sample_values or {},
+        "intent": intent or {},
+    }
 
-        prompt = prompt_template.format(**context)
+    prompt = prompt_template.format(**context)
 
-        print("\n----- PROMPT SENT TO COPILOT -----")
-        print(prompt[:3000])
-        print("----- END PROMPT PREVIEW -----\n")
+    print("\n----- PROMPT SENT TO COPILOT -----")
+    print(prompt[:3000])
+    print("----- END PROMPT PREVIEW -----\n")
 
-        resolved_token = (
-            copilot_token
-            or kwargs.get("github_token")
-            or os.getenv("GITHUB_COPILOT_TOKEN", "")
-        )
+    resolved_token = (
+        copilot_token
+        or kwargs.get("github_token")
+        or os.getenv("GITHUB_COPILOT_TOKEN", "")
+    )
 
-        print("SQL GENERATOR RECEIVED TOKEN:", bool(copilot_token))
-        print("ENV TOKEN EXISTS:", bool(os.getenv("GITHUB_COPILOT_TOKEN", "")))
-        print("FINAL TOKEN EXISTS:", bool(resolved_token))
+    print("SQL GENERATOR RECEIVED TOKEN:", bool(copilot_token))
+    print("ENV TOKEN EXISTS:", bool(os.getenv("GITHUB_COPILOT_TOKEN", "")))
+    print("FINAL TOKEN EXISTS:", bool(resolved_token))
 
-        response = await get_copilot_chat_completion(
-            github_token=resolved_token,
-            model="gpt-4.1",
-            prompt=prompt
-        )
+    max_retries = 1
+    last_error = None
+    
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            print(f"\n⚠️ RETRYING LLM CALL (Attempt {attempt + 1}/{max_retries + 1}). Waiting 1.5s...")
+            await asyncio.sleep(1.5)
 
-        print("----- RAW COPILOT SDK RESPONSE -----")
-        print(response)
-        print("----- END RAW RESPONSE -----")
-
-        if not response.get("success"):
-            raise RuntimeError(
-                response.get("error_message", "LLM generation failed")
+        try:
+            response = await get_copilot_chat_completion(
+                github_token=resolved_token,
+                model="gpt-4.1",
+                prompt=prompt
             )
 
-        response_text = response.get("response_text", "{}")
+            print(f"\n----- RAW COPILOT SDK RESPONSE (Attempt {attempt + 1}) -----")
+            print(response)
+            print("----- END RAW RESPONSE -----")
 
-        print("----- RAW LLM TEXT -----")
-        print(response_text)
-        print("----- END RAW LLM TEXT -----")
+            if not response.get("success"):
+                raise RuntimeError(response.get("error_message", "LLM SDK returned success=False"))
 
-        generated = _extract_json_from_response(response_text)
+            response_text = response.get("response_text", "")
+            
+            if not response_text:
+                raise ValueError("response_text is empty or missing")
 
-        if "sql" not in generated:
-            raise ValueError("LLM response JSON missing 'sql' key")
+            generated = _extract_json_from_response(response_text)
 
-        # Sanitize Trino SQL (replace ILIKE with LOWER(col) LIKE LOWER(val))
-        from app.services.sql_repair import sanitize_trino_sql
-        generated["sql"] = sanitize_trino_sql(generated["sql"])
+            if "sql" not in generated:
+                raise ValueError("LLM response JSON missing 'sql' key")
 
-        print("✅ LLM GENERATED SQL SUCCESSFULLY")
-        print("SQL (Sanitized):", generated["sql"])
-        print("=========================================\n")
+            # Sanitize Trino SQL (replace ILIKE with LOWER(col) LIKE LOWER(val))
+            from app.services.sql_repair import sanitize_trino_sql
+            generated["sql"] = sanitize_trino_sql(generated["sql"])
 
-        logger.info("SQL generation succeeded: %s", generated)
-        return generated
+            print("✅ LLM GENERATED SQL SUCCESSFULLY")
+            print("SQL (Sanitized):", generated["sql"])
+            print("=========================================\n")
 
-    except Exception as e:
-        print("❌ USING FALLBACK SQL")
-        print("FALLBACK REASON:", repr(e))
-        print("=========================================\n")
+            logger.info(f"SQL generation succeeded on attempt {attempt + 1}")
+            return generated
 
-        logger.warning(
-            "LLM SQL generation failed, using fallback SQL. Error: %s",
-            e
-        )
+        except Exception as e:
+            last_error = e
+            print(f"❌ Attempt {attempt + 1} failed: {repr(e)}")
+            logger.warning(f"LLM SQL generation attempt {attempt + 1} failed. Error: {e}")
 
-        fallback_sql = f"""
+    print("❌ ALL LLM ATTEMPTS FAILED. USING FALLBACK SQL")
+    print("FINAL FALLBACK REASON:", repr(last_error))
+    print("=========================================\n")
+
+    fallback_sql = f"""
 SELECT COUNT(*) AS result_count
 FROM {table_name}
 LIMIT 100
 """.strip()
 
-        return {
-            "assumption": "Fallback SQL was used because LLM SQL generation failed.",
-            "sql": fallback_sql,
-            "chart_type": "table",
-            "explanation": f"Generated a safe fallback SELECT query using table {table_name}."
-        }
+    return {
+        "assumption": f"Fallback SQL was used because LLM SQL generation failed after retries. Error: {str(last_error)}",
+        "sql": fallback_sql,
+        "chart_type": "table",
+        "explanation": f"Generated a safe fallback SELECT query using table {table_name} due to an error."
+    }

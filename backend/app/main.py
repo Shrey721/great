@@ -18,8 +18,13 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000",
-    "http://127.0.0.1:3000",], # Set origins for credentials
+    allow_origins=[
+        settings.FRONTEND_URL,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ], # Set origins for credentials
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,7 +34,9 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SECRET_KEY,
     session_cookie="skyquery_session",
-    max_age=86400 * 7  # 7 days
+    max_age=86400 * 7,  # 7 days
+    same_site="lax",
+    https_only=False,
 )
 
 # Include Routers

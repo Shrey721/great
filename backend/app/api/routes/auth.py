@@ -121,14 +121,45 @@ async def github_callback(request: Request, code: str, db: Session = Depends(get
         # Store token securely server-side in Redis tied to this session
         # Store token securely server-side in Redis tied to this session using the required key format
         redis_client.setex(f"copilot_token:{session_id}", 86400 * 7, access_token)
+        # Store user ID securely tied to this session to bypass cookie blocking
+        redis_client.setex(f"session_user:{session_id}", 86400 * 7, str(user.id))
         
-        # Redirect to frontend
-        print(f"[Auth Callback] Creating session for user {user.username} and redirecting to {settings.FRONTEND_URL}/")
-        return RedirectResponse(url=f"{settings.FRONTEND_URL}/")
+        # Redirect to frontend with the session_id query parameter
+        frontend_redirect_url = f"{settings.FRONTEND_URL}/?session_id={session_id}"
+        print(f"[Auth Callback] Creating session for user {user.username} and redirecting to {frontend_redirect_url}")
+        return RedirectResponse(url=frontend_redirect_url)
+
+def get_session_credentials(request: Request):
+    user_id = request.session.get("user_id")
+    session_id = request.session.get("session_id")
+    
+    auth_header = request.headers.get("Authorization")
+    x_session_header = request.headers.get("X-Session-ID")
+    
+    hdr_session_id = None
+    if auth_header and auth_header.startswith("Bearer "):
+        hdr_session_id = auth_header.split(" ", 1)[1]
+    elif x_session_header:
+        hdr_session_id = x_session_header
+        
+    if hdr_session_id:
+        cached_user_id = redis_client.get(f"session_user:{hdr_session_id}")
+        if cached_user_id:
+            u_id = cached_user_id.decode() if isinstance(cached_user_id, bytes) else str(cached_user_id)
+            user_id = int(u_id)
+            session_id = hdr_session_id
+            print(f"[Auth Session Restoration] Restored session ID {session_id[:8]}... for User ID {user_id}")
+            
+            # Sync back to Starlette session to assist future cookie fallback
+            request.session["user_id"] = user_id
+            request.session["session_id"] = session_id
+            
+    return user_id, session_id
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user(request: Request, db: Session = Depends(get_db)):
-    user_id = request.session.get("user_id")
+    user_id, session_id = get_session_credentials(request)
+    print(f"[Auth /me] Requested User ID: {user_id}, Session ID: {session_id}")
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
         
@@ -140,16 +171,16 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/logout")
 def logout(request: Request):
-    session_id = request.session.get("session_id")
+    user_id, session_id = get_session_credentials(request)
     if session_id:
         redis_client.delete(f"copilot_token:{session_id}")
+        redis_client.delete(f"session_user:{session_id}")
     request.session.clear()
     return {"message": "Logged out successfully"}
 
 @router.get("/token-status")
 async def get_token_status(request: Request):
-    user_id = request.session.get("user_id")
-    session_id = request.session.get("session_id")
+    user_id, session_id = get_session_credentials(request)
     
     if not user_id or not session_id:
         return {"authenticated": False, "token_exists": False, "github_api_success": False}
@@ -181,8 +212,7 @@ async def test_copilot_llm(req: CopilotTestRequest, request: Request):
 
     settings = Settings()
 
-    user_id = request.session.get("user_id")
-    session_id = request.session.get("session_id")
+    user_id, session_id = get_session_credentials(request)
 
     if not user_id or not session_id:
         return {

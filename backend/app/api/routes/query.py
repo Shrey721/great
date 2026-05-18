@@ -19,19 +19,25 @@ class QueryRequest(BaseModel):
 @router.post("/query", response_model=Dict[str, Any])
 async def query_endpoint(request: QueryRequest, req: Request):
     try:
-        session_id = request.session_id or req.session.get("session_id") or "demo"
-        token_key = f"copilot_token:{session_id}"
+        from app.api.routes.auth import get_session_credentials
+        user_id, auth_session_id = get_session_credentials(req)
+        
+        chat_session_id = request.session_id or "demo"
+        token_session_id = auth_session_id or chat_session_id
+        
+        token_key = f"copilot_token:{token_session_id}"
         raw_token = redis_client.get(token_key)
 
-        print("QUERY SESSION ID:", session_id)
-        print("QUERY TOKEN KEY:", token_key)
-        print("QUERY REDIS CLIENT:", redis_client)
-        print("QUERY RAW TOKEN EXISTS:", bool(raw_token))
+        print("[Query Route] Chat Session ID:", chat_session_id)
+        print("[Query Route] Auth Session ID:", auth_session_id)
+        print("[Query Route] Token Session ID:", token_session_id)
+        print("[Query Route] Token Key Lookup:", token_key)
+        print("[Query Route] Redis Token Exists:", bool(raw_token))
 
         if not raw_token:
             raise HTTPException(
                 status_code=401,
-                detail="Copilot authentication required for this session"
+                detail="Live Copilot session expired or unavailable. Please reconnect authentication."
             )
 
         copilot_token = (
@@ -46,7 +52,7 @@ async def query_endpoint(request: QueryRequest, req: Request):
 
         result = await pipeline.process(
             question=request.question,
-            session_id=session_id,
+            session_id=chat_session_id,
             copilot_token=copilot_token,
         )
 

@@ -14,6 +14,9 @@ Rules:
   hour(timestamp_column)
 - For date filtering or comparing dates from a timestamp, use:
   CAST(timestamp_column AS DATE)
+- When the user asks for distinct values of a category (e.g. distinct airlines, carriers, airports) and a chart/summary is expected, prefer grouping with a count measure:
+  SELECT column, COUNT(*) AS count FROM table GROUP BY column ORDER BY count DESC
+  instead of only returning SELECT DISTINCT column, to ensure rich numeric measures for charts.
 - Use only the provided schema and selected tables.
 - Never use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE.
 - Return ONLY valid JSON.
